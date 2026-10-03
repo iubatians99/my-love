@@ -124,6 +124,21 @@ box-shadow:0 0 0 4px #5b3820,0 0 0 5px rgba(242,196,109,.55),0 20px 28px rgba(0,
 .l{background:none}
 .l .rs{animation:none}
 .l img.rs,.l .rs{filter:drop-shadow(0 2px 3px rgba(0,0,0,.55))}
+
+/* v7: sound button + share sheet */
+#snd{position:fixed;top:max(10px,env(safe-area-inset-top));right:12px;z-index:35;width:42px;height:42px;border-radius:50%;border:1px solid rgba(242,196,109,.55);background:rgba(10,3,6,.5);backdrop-filter:blur(6px);font-size:1.1rem;color:#fff;cursor:pointer}
+.mk{position:absolute;bottom:max(18px,env(safe-area-inset-bottom));background:none;border:0;color:#c9a0a9;font:700 .9rem var(--sans);text-decoration:underline;cursor:pointer}
+#share{position:fixed;inset:0;z-index:40;display:none;align-items:center;justify-content:center;background:rgba(10,2,5,.8);backdrop-filter:blur(8px);padding:24px}
+#share.show{display:flex}
+#share .card{width:100%}
+#share .card p{font-size:1.6rem}
+#share input{width:100%;margin-top:16px;padding:14px 16px;border-radius:14px;border:1.5px solid rgba(242,196,109,.6);background:rgba(0,0,0,.35);color:#fff0ea;font:700 1.05rem var(--sans);text-align:center}
+.chips{display:flex;gap:8px;justify-content:center;margin-top:14px;flex-wrap:wrap}
+.chips button{border:1px solid rgba(242,196,109,.5);background:transparent;color:#ffd6de;border-radius:999px;padding:8px 13px;font:700 .85rem var(--sans);cursor:pointer}
+.chips .on{background:#b30c27;color:#fff}
+.row{display:flex;gap:10px;margin-top:12px;justify-content:center}
+.row .btn{margin-top:0;padding:11px 24px;font-size:1rem}
+.x{margin-top:14px;background:none;border:0;color:#b98a93;font:600 .9rem var(--sans);text-decoration:underline;cursor:pointer}
 </style>
 </head>
 <body>
@@ -136,6 +151,7 @@ box-shadow:0 0 0 4px #5b3820,0 0 0 5px rgba(242,196,109,.55),0 20px 28px rgba(0,
 <section class="screen on" id="s1">
   <h1>Do you love flowers?</h1>
   <button class="btn blink" id="yes1">Yes</button>
+  <button class="mk" id="mk1">Make one for someone you love</button>
 </section>
 
 <section class="screen" id="s2">
@@ -166,11 +182,19 @@ box-shadow:0 0 0 4px #5b3820,0 0 0 5px rgba(242,196,109,.55),0 20px 28px rgba(0,
 
 <section class="screen" id="s4">
   <h1>Love you <span class="h">❤️</span></h1>
-  <small>from Somrat</small>
+  <small id="frm"></small>
+  <button class="btn" id="shareBtn" style="margin-top:26px;padding:12px 28px;font-size:1rem">Send this to someone 💌</button>
   <button id="again">Plant again</button>
 </section>
 
-<div id="modal"><div class="card"><p>Somrat is extremely, very sorry. 🌹<br>You should love him.</p><button class="btn" id="ok">OK</button></div></div>
+<div id="modal"><div class="card"><p id="sorryTxt"></p><button class="btn" id="ok">OK</button></div></div>
+<button id="snd" aria-label="Sound on or off">🔊</button>
+<div id="share"><div class="card"><p style="font-size:1.6rem">Make your own</p>
+<input id="nm" maxlength="24" placeholder="Your name" autocomplete="off">
+<div class="chips" id="pr"><button data-p="him" class="on">he / him</button><button data-p="her">she / her</button><button data-p="them">they / them</button></div>
+<button class="btn" id="mkLink" style="margin-top:18px;padding:13px 30px;font-size:1.05rem">Create link</button>
+<div id="out" style="display:none"><input id="lnk" readonly><div class="row"><button class="btn" id="cp">Copy</button><button class="btn" id="sh">Share</button></div></div>
+<button class="x" id="cl">Close</button></div></div>
 <canvas id="fx"></canvas>
 
 <script>
@@ -206,14 +230,63 @@ function tick(){
   if(P.length)requestAnimationFrame(tick);else run=false;
 }
 
+/* sound: all synthesized, original melody */
+const A=(()=>{
+ let ctx,master,mus,on=true,timer,step=0,next=0,lastPop=0;
+ const m2f=m=>440*Math.pow(2,(m-69)/12),EI=.4;
+ const CH=[[48,55,60,64],[45,52,57,60],[41,48,53,57],[43,50,55,59]];
+ const ME=[[76,79,84,83,79,76,79,0],[81,79,76,79,81,84,81,0],[77,81,84,81,79,77,76,0],[74,79,83,79,77,74,71,0]];
+ function unlock(){if(!ctx){const C=window.AudioContext||window.webkitAudioContext;if(!C)return;ctx=new C();master=ctx.createGain();master.gain.value=on?.9:0;master.connect(ctx.destination);mus=ctx.createGain();mus.gain.value=.4;mus.connect(master)}if(ctx.state!=='running')ctx.resume()}
+ function note(f,t,d,o={}){if(!ctx)return;const g=ctx.createGain(),q=ctx.createOscillator();q.type=o.type||'sine';q.frequency.setValueAtTime(f,t);if(o.to)q.frequency.exponentialRampToValueAtTime(o.to,t+d);
+  g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(o.v||.2,t+(o.a||.005));g.gain.exponentialRampToValueAtTime(.0001,t+d);q.connect(g);g.connect(o.bus||master);q.start(t);q.stop(t+d+.05)}
+ const bell=(f,t,d,v,bus)=>{note(f,t,d,{v,bus});note(f*2,t,d*.6,{v:v*.3,bus});note(f*3,t,d*.3,{v:v*.12,bus})};
+ function sched(){if(!ctx)return;while(next<ctx.currentTime+.4){const bar=Math.floor(step/8)%4,i=step%8,c=CH[bar],t=next;
+  if(i===0){note(m2f(c[0]),t,2.6,{v:.2,a:.01,bus:mus});c.slice(1).forEach(m=>note(m2f(m+12),t,3.2,{type:'triangle',v:.045,a:.9,bus:mus}))}
+  if(i===2||i===4||i===6)bell(m2f(c[i/2]+12),t,1.2,.06,mus);
+  if(ME[bar][i])bell(m2f(ME[bar][i]),t,1.7,.13,mus);
+  step++;next+=EI}}
+ const T=()=>ctx.currentTime,P=[72,74,76,79,81];
+ return{
+  unlock,
+  music(){unlock();if(!ctx||timer)return;next=T()+.1;step=0;timer=setInterval(sched,100)},
+  level(v){if(mus){mus.gain.cancelScheduledValues(T());mus.gain.linearRampToValueAtTime(v,T()+1.5)}},
+  tick(){if(!ctx)return;note(880,T(),.09,{v:.1});note(1320,T()+.05,.1,{v:.07})},
+  pop(){if(!ctx)return;const t=T();if(t-lastPop<.05)return;lastPop=t;note(260+Math.random()*120,t,.14,{to:620,v:.16});note(110,t,.12,{v:.2})},
+  sparkle(){if(!ctx)return;[72,76,79,84,88,91].forEach((m,i)=>bell(m2f(m),T()+i*.09,1.3,.12))},
+  chime(){if(!ctx)return;bell(m2f(79),T(),1.4,.14);bell(m2f(84),T()+.14,1.6,.14)},
+  grow(){if(!ctx)return;A.level(.6);note(180,T(),3,{to:560,v:.09,a:.8});for(let i=0;i<6;i++)bell(m2f(P[i%5]+12),T()+.5+i*.4,1.5,.08)},
+  bloom(){if(!ctx)return;A.level(.5);for(let i=0;i<16;i++)bell(m2f(P[Math.floor(Math.random()*5)]+12*(i%2)),T()+i*.13+Math.random()*.08,1.6,.1)},
+  sorry(){if(!ctx)return;[60,64,67,71,74].forEach(m=>note(m2f(m),T(),6,{type:'triangle',v:.09,a:1.3}))},
+  final(){if(!ctx)return;A.level(.45);[72,76,79,84,88].forEach((m,i)=>bell(m2f(m),T()+i*.12,1.8,.14));
+   setInterval(()=>{if(!ctx)return;const t=T();note(95,t,.2,{to:60,v:.22});note(90,t+.2,.2,{to:58,v:.14})},1100)},
+  toggle(){on=!on;if(master)master.gain.setTargetAtTime(on?.9:0,T(),.05);return on}
+ }})();
+document.addEventListener('pointerdown',()=>A.unlock());
+document.addEventListener('click',e=>{if(e.target.closest('.btn,.mk,.chips button'))A.tick()});
+$('snd').onclick=()=>{$('snd').textContent=A.toggle()?'🔊':'🔇'};
+
+/* name + sharing */
+const qs=new URLSearchParams(location.search),FROM=qs.get('from');
+const NAME=((FROM||'Somrat').trim().slice(0,24))||'Somrat',OBJ={him:'him',her:'her',them:'them'}[qs.get('p')]||(FROM?'them':'him');
+$('sorryTxt').innerHTML='<span id="nmA"></span> is extremely, very sorry. 🌹<br>You should love '+OBJ+'.';
+$('nmA').textContent=NAME;$('frm').textContent='from '+NAME;document.title='A garden for you, from '+NAME;
+let pr='him';
+$('pr').onclick=e=>{const b=e.target.closest('button');if(!b)return;pr=b.dataset.p;[...$('pr').children].forEach(x=>x.classList.toggle('on',x===b))};
+$('shareBtn').onclick=$('mk1').onclick=()=>$('share').classList.add('show');
+$('cl').onclick=()=>$('share').classList.remove('show');
+$('mkLink').onclick=()=>{const n=$('nm').value.trim().slice(0,24);if(!n){$('nm').focus();return}
+ $('lnk').value=location.href.split('?')[0].split('#')[0]+'?from='+encodeURIComponent(n)+'&p='+pr;$('out').style.display='block';$('sh').style.display=navigator.share?'':'none'};
+$('cp').onclick=async()=>{const l=$('lnk');try{await navigator.clipboard.writeText(l.value)}catch(e){l.select();document.execCommand('copy')}$('cp').textContent='Copied ✓';setTimeout(()=>$('cp').textContent='Copy',1500)};
+$('sh').onclick=()=>navigator.share({title:'A garden for you',text:'I made this for you 🌹',url:$('lnk').value}).catch(()=>{});
+
 /* 1 -> 2 */
 $('yes1').onclick=async()=>{
-  show('s2');
+  A.music();show('s2');A.sparkle();
   rain(130,['🌹']);
   await wait(1500);rain(40,['🌹','🌸']);
   await wait(2400);
   $('hello').style.opacity=0;await wait(500);
-  $('hello').style.display='none';$('q2').classList.add('show');
+  $('hello').style.display='none';$('q2').classList.add('show');A.chime();
 };
 
 /* 2 -> garden */
@@ -239,7 +312,7 @@ field.addEventListener('click',e=>{
   if(planted>=4)$('offer').classList.add('show');
 });
 function plant(d,ripple){
-  d.classList.add('p');
+  d.classList.add('p');A.pop();
   if(ripple){const i=document.createElement('i');i.className='ripple';d.appendChild(i);setTimeout(()=>i.remove(),700)}
   if(navigator.vibrate&&ripple)navigator.vibrate(15);
 }
@@ -252,23 +325,23 @@ $('auto').onclick=async()=>{
   const rest=cells.filter(c=>!c.classList.contains('p')).sort(()=>Math.random()-.5);
   rest.forEach((c,i)=>setTimeout(()=>plant(c),i*(1600/rest.length)));
   await wait(2600);
-  $('msg').textContent='Growing…';
+  $('msg').textContent='Growing…';A.grow();
   if(IMG.growVideo)await playGrow(document.body);
   cells.forEach(c=>setTimeout(()=>c.classList.add('g'),Math.random()*1300));
   await wait(IMG.growVideo?1800:3300);
-  $('msg').textContent='Blooming…';
+  $('msg').textContent='Blooming…';A.bloom();
   cells.forEach(c=>setTimeout(()=>c.classList.add('b'),Math.random()*1800));
   rain(30,['🌹','🌸'],false);
   await wait(3200);
-  $('msg').style.visibility='hidden';
+  $('msg').style.visibility='hidden';A.sorry();
   cells.forEach(c=>c.classList.add(c.dataset.l?'l':'d'));
   await wait(9500);
-  $('modal').classList.add('show');
+  $('modal').classList.add('show');A.chime();
 };
 
 /* popup -> final */
 $('ok').onclick=()=>{
-  $('modal').classList.remove('show');show('s4');
+  $('modal').classList.remove('show');show('s4');A.final();
   rain(70,['❤️','💖','🌹','💕']);
   setInterval(()=>rain(6,['❤️','💖','🌹','💕']),900);
 };
